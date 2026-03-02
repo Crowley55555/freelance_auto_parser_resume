@@ -1,0 +1,14 @@
+{
+  "order": {
+    "description": ".b-post__txt, .b-post__body, [data-description]",
+    "cover_letter_input": "textarea[name='descr'], #descr, .b-form__textarea, textarea[placeholder*='отклик'], textarea[placeholder*='Отклик']",
+    "submit_button": "input[type='submit'][value*='Отправ'], button[type='submit'], .b-button[type='submit'], [data-action='submit']",
+    "resume_file_input": "input[type='file'][name*='file'], input[type='file'][accept*='pdf'], input[type='file']#file"
+  },
+  "success": {
+    "indicator": ".b-notify__success, .success-message, .b-message_success, [data-status='success']"
+  },
+  "captcha": {
+    "indicator": ".captcha, .g-recaptcha, iframe[src*='recaptcha'], .b-captcha, [data-captcha]"
+  }
+}
