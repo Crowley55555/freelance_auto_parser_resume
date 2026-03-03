@@ -1,6 +1,6 @@
 """
 Локальная отчётность в Excel (report.xlsx) с фиксированными колонками и retry при ошибке записи.
-Колонки (строго по порядку): Ссылка на заказ, Сопроводительное письмо, Дата отклика, Стоимость заказа.
+Колонки (строго по порядку): Биржа, Ссылка на заказ, Сопроводительное письмо, Дата отклика, Стоимость заказа.
 """
 import asyncio
 import logging
@@ -14,8 +14,8 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 REPORT_PATH = Path(__file__).resolve().parent.parent / "report.xlsx"
-# Строго определённые колонки в нужном порядке
 COLUMNS = [
+    "Биржа",
     "Ссылка на заказ",
     "Сопроводительное письмо",
     "Дата отклика",
@@ -34,6 +34,7 @@ def _ensure_file() -> None:
 
 
 def _append_row_sync(
+    platform: str,
     url: str,
     cover_letter: str,
     date_response: str,
@@ -42,6 +43,7 @@ def _append_row_sync(
     """Синхронная запись одной строки с retry (3 попытки, интервал 2 с)."""
     _ensure_file()
     row = {
+        "Биржа": platform,
         "Ссылка на заказ": url,
         "Сопроводительное письмо": cover_letter or "",
         "Дата отклика": date_response,
@@ -50,9 +52,14 @@ def _append_row_sync(
     for attempt in range(RETRY_COUNT):
         try:
             df = pd.read_excel(REPORT_PATH, engine="openpyxl")
+            # Привести колонки к нужному порядку (если в файле нет колонки «Биржа» — добавить)
+            for c in COLUMNS:
+                if c not in df.columns:
+                    df[c] = ""
+            df = df[COLUMNS]
             df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
             df.to_excel(REPORT_PATH, index=False, engine="openpyxl")
-            logger.info("Запись в отчёт добавлена: url=%s", url)
+            logger.info("Запись в отчёт добавлена: %s | %s", platform, url)
             return
         except Exception as e:
             logger.warning("Ошибка записи в Excel (попытка %s/%s): %s", attempt + 1, RETRY_COUNT, e)
@@ -63,19 +70,20 @@ def _append_row_sync(
 
 
 async def append_row(
+    platform: str,
     url: str,
     cover_letter: str,
     budget: Optional[str] = None,
 ) -> None:
     """
     Асинхронно добавляет строку в report.xlsx.
-    Дата отклика берётся в момент вызова (момент нажатия кнопки подтверждения пользователем).
-    Стоимость заказа: переданное значение или «Не указан».
-    При ошибке записи (например, файл открыт) — 3 попытки с интервалом 2 с.
+    platform: "fl.ru" или "Kwork".
+    Дата отклика — момент вызова (нажатие кнопки подтверждения).
     """
     date_response = datetime.now().strftime("%Y-%m-%d %H:%M")
     await asyncio.to_thread(
         _append_row_sync,
+        platform,
         url,
         cover_letter or "",
         date_response,

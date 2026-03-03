@@ -13,6 +13,7 @@ from aiogram.enums import ParseMode
 
 from db.models import init_db
 from bot.handlers import router, run_parser_and_notify
+from bot.menu_handlers import router as menu_router
 from browser.automation import close_browser
 
 load_dotenv()
@@ -65,6 +66,7 @@ async def main() -> None:
 
     bot = Bot(token=TELEGRAM_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+    dp.include_router(menu_router)
     dp.include_router(router)
 
     # Фоновый парсер

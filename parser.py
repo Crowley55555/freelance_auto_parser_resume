@@ -1,4 +1,5 @@
 import re
+import calendar
 import feedparser
 import logging
 
@@ -47,7 +48,7 @@ def parser():
 def fetch_orders_for_db():
     """
     Парсит RSS и возвращает список заказов для записи в БД.
-    Каждый элемент: fl_order_id, title, url, budget (бюджет по возможности из description).
+    Каждый элемент: fl_order_id, title, url, budget, published_ts (UTC timestamp для фильтра по времени).
     """
     try:
         feed = feedparser.parse(RSS_URL)
@@ -62,15 +63,21 @@ def fetch_orders_for_db():
                 fl_order_id = url
             budget = ""
             summary = entry.get("summary", "") or ""
-            # Попытка вытащить бюджет из описания (например "Бюджет: 5000 руб")
             budget_m = re.search(r"[Бб]юджет[:\s]*([^\s<]+)", summary, re.I)
             if budget_m:
                 budget = budget_m.group(1).strip()
+            # Время публикации (UTC) для фильтра «не старше 24ч» и «только новые»
+            published_ts = 0
+            if getattr(entry, "published_parsed", None):
+                published_ts = calendar.timegm(entry.published_parsed)
+            elif getattr(entry, "updated_parsed", None):
+                published_ts = calendar.timegm(entry.updated_parsed)
             result.append({
                 "fl_order_id": fl_order_id,
                 "title": title,
                 "url": url,
                 "budget": budget,
+                "published_ts": published_ts,
             })
         return result
     except Exception as e:
