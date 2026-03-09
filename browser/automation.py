@@ -16,6 +16,7 @@ from browser.base import (
     get_resume_path,
     get_description_from_page,
     fill_form,
+    click_apply_button_if_present,
 )
 from browser.base import PROJECT_ROOT
 
@@ -45,11 +46,21 @@ async def get_browser_context() -> BrowserContext:
     return _context
 
 
+def invalidate_browser_context() -> None:
+    """Сбрасывает кэш контекста (например, после закрытия окна пользователем). Следующий вызов get_browser_context() откроет новое окно."""
+    global _context, _playwright
+    _context = None
+    _playwright = None
+
+
 async def close_browser() -> None:
     """Закрывает браузер и Playwright."""
     global _context, _playwright
     if _context:
-        await _context.close()
+        try:
+            await _context.close()
+        except Exception:
+            pass
         _context = None
     if _playwright:
         await _playwright.stop()
@@ -68,12 +79,23 @@ async def process_order(url: str, order_id: int) -> str:
         )
 
     selectors = load_selectors()
-    context = await get_browser_context()
-    page = await context.new_page()
+    for attempt in (1, 2):
+        try:
+            context = await get_browser_context()
+            page = await context.new_page()
+            break
+        except Exception as e:
+            if "closed" in str(e).lower() and attempt == 1:
+                logger.warning("Браузер был закрыт, перезапускаю окно: %s", e)
+                invalidate_browser_context()
+                continue
+            raise
 
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(1)
+
+        await click_apply_button_if_present(page, selectors)
 
         description = await get_description_from_page(
             page,

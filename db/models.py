@@ -179,3 +179,26 @@ def count_orders_by_status(status: str) -> int:
         return cur.fetchone()[0]
     finally:
         conn.close()
+
+
+def get_all_orders(limit: int = 10, offset: int = 0) -> list:
+    """Возвращает все заказы (для раздела «Все заказы»)."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM orders ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def count_all_orders() -> int:
+    """Общее количество заказов."""
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT COUNT(*) FROM orders")
+        return cur.fetchone()[0]
+    finally:
+        conn.close()

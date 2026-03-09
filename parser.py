@@ -52,7 +52,11 @@ def fetch_orders_for_db():
     """
     try:
         feed = feedparser.parse(RSS_URL)
-        if feed.bozo or not feed.entries:
+        if feed.bozo:
+            logger.warning("fl.ru RSS: ошибка парсинга (bozo)")
+            return []
+        if not feed.entries:
+            logger.warning("fl.ru RSS: нет записей")
             return []
         result = []
         for entry in feed.entries:
@@ -79,6 +83,7 @@ def fetch_orders_for_db():
                 "budget": budget,
                 "published_ts": published_ts,
             })
+        logger.info("fl.ru: из RSS получено заказов: %s", len(result))
         return result
     except Exception as e:
         logger.error("Ошибка fetch_orders_for_db: %s", e)

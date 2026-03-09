@@ -9,6 +9,7 @@ from typing import Callable, Awaitable
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
+from aiogram.exceptions import TelegramBadRequest
 
 import parser as parser_module
 from platforms import kwork_parser as kwork_parser_module
@@ -31,9 +32,10 @@ ORDER_PROCESSORS: dict[str, Callable[[str, int], Awaitable[str]]] = {
 }
 
 
-def _keyboard_apply(order_id: int) -> InlineKeyboardMarkup:
+def _keyboard_apply(order_id: int, order_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✍️ Откликнуться", callback_data=f"apply_{order_id}")]
+        [InlineKeyboardButton(text="✍️ Откликнуться", callback_data=f"apply_{order_id}")],
+        [InlineKeyboardButton(text="🔗 Перейти к заказу", url=order_url)],
     ])
 
 
@@ -145,7 +147,7 @@ def _text_for_filter(order_data: dict, include_description: bool = False) -> str
 async def run_parser_and_notify(bot, chat_id: int):
     """
     Парсит fl.ru и Kwork параллельно.
-    Обе платформы: изначально — заказы не старше 24 ч; далее — только новые (новее последней проверки).
+    Обе платформы: изначально — заказы не старше 48 ч; далее — только новые (новее последней проверки).
     Плюс фильтр по ключевым словам. Отправляет в Telegram с префиксами.
     """
     fl_orders, kwork_orders = await asyncio.gather(
@@ -153,47 +155,69 @@ async def run_parser_and_notify(bot, chat_id: int):
         kwork_parser_module.fetch_orders_for_db(),
     )
 
-    # Фильтр по времени для обеих платформ: 24ч при первом запуске, далее только новее last_run
+    # Фильтр по времени: fl.ru (RSS) — всегда 48ч (RSS с задержкой); Kwork — только новее last_run
     last_run_fl = await asyncio.to_thread(get_last_run_ts, "fl_ru")
     last_run_kwork = await asyncio.to_thread(get_last_run_ts, "kwork")
-    fl_orders = filter_by_time(fl_orders, last_run_fl)
+    fl_orders = filter_by_time(fl_orders, last_run_fl, strict_incremental=False)
     kwork_orders = filter_by_time(kwork_orders, last_run_kwork)
+    logger.info("fl.ru: после фильтра по времени осталось заказов: %s", len(fl_orders))
+    logger.info("Kwork: после фильтра по времени осталось заказов: %s", len(kwork_orders))
 
     sources = [
         (fl_orders, db.PLATFORM_FL_RU, False),
         (kwork_orders, db.PLATFORM_KWORK, True),
     ]
+    fl_added, kwork_added = 0, 0
     for orders, platform, use_description in sources:
         for o in orders:
             if not is_relevant_order(_text_for_filter(o, include_description=use_description)):
                 continue
+            if platform == db.PLATFORM_FL_RU:
+                fl_added += 1
+            elif platform == db.PLATFORM_KWORK:
+                kwork_added += 1
+            # Префикс платформы — избегаем коллизии fl_order_id (fl.ru и Kwork могут иметь одинаковые числа)
+            unique_id = f"{platform}_{o['fl_order_id']}"
             await asyncio.to_thread(
                 db.create_order,
-                o["fl_order_id"],
+                unique_id,
                 o["title"],
                 o["url"],
                 o.get("budget"),
                 platform,
             )
+    logger.info("fl.ru: добавлено в БД (прошли ключевые слова): %s", fl_added)
+    logger.info("Kwork: добавлено в БД (прошли ключевые слова): %s", kwork_added)
 
     # Сохраняем время проверки для следующего цикла (только новые заказы в следующий раз)
     await asyncio.to_thread(set_last_run, "fl_ru")
     await asyncio.to_thread(set_last_run, "kwork")
 
     to_send = await asyncio.to_thread(db.get_new_orders)
+    logger.info("К отправке в Telegram: %s заказов", len(to_send))
+    chat_error_logged = False
     for order in to_send:
         prefix = get_prefix(normalize_platform(order.get("platform")))
         text = (
             f"{prefix} {order['title']}\n"
-            f"💰 {order.get('budget') or '—'}\n"
-            f"🔗 {order['url']}"
+            f"💰 {order.get('budget') or '—'}"
         )
         try:
             await bot.send_message(
                 chat_id,
                 text,
-                reply_markup=_keyboard_apply(order["id"]),
+                reply_markup=_keyboard_apply(order["id"], order["url"]),
             )
             await asyncio.to_thread(db.update_order, order["id"], status=db.STATUS_NOTIFIED)
+        except TelegramBadRequest as e:
+            if "chat not found" in str(e).lower() and not chat_error_logged:
+                logger.error(
+                    "Telegram: чат не найден (chat not found). Проверьте TELEGRAM_CHAT_ID в .env: "
+                    "убедитесь, что бот добавлен в чат/группу и ID указан верно (число или -100... для групп)."
+                )
+                chat_error_logged = True
+            elif not chat_error_logged:
+                logger.exception("Не удалось отправить заказ в Telegram: %s", e)
+                chat_error_logged = True
         except Exception as e:
             logger.exception("Не удалось отправить заказ в Telegram: %s", e)

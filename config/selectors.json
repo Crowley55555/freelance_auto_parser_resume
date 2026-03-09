@@ -1,5 +1,6 @@
 {
   "order": {
+    "apply_button": "a.b-button, .b-post__action a, .js-offer-form-trigger, [data-offer-trigger], .b-post__action .b-button",
     "description": ".b-post__txt, .b-post__body, [data-description]",
     "cover_letter_input": "textarea[name='descr'], #descr, .b-form__textarea, textarea[placeholder*='отклик'], textarea[placeholder*='Отклик']",
     "submit_button": "input[type='submit'][value*='Отправ'], button[type='submit'], .b-button[type='submit'], [data-action='submit']",

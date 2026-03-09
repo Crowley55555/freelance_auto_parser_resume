@@ -2,6 +2,7 @@
 Общая логика автоматизации браузера (DRY): работа с селекторами, заполнение формы, резюме.
 Используется и fl.ru, и Kwork — без дублирования кода (Single Responsibility).
 """
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -10,6 +11,9 @@ from typing import Optional
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeout
 
 logger = logging.getLogger(__name__)
+
+# Тексты кнопок «Откликнуться» / «Предложить услугу» для поиска по контенту
+APPLY_BUTTON_TEXTS = ("Откликнуться", "Предложить услугу", "Предложить", "Написать сообщение")
 
 # Базовый путь к проекту для относительного RESUME_PATH
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -30,6 +34,52 @@ def get_resume_path(resume_path_env: Optional[str] = None) -> Optional[Path]:
 def first_selector(selectors_str: str) -> list[str]:
     """Разбивает строку селекторов (через запятую) и возвращает список без пустых."""
     return [s.strip() for s in selectors_str.split(",") if s.strip()]
+
+
+async def click_apply_button_if_present(
+    page: Page,
+    selectors: dict,
+    timeout_ms: int = 5000,
+) -> bool:
+    """
+    Нажимает кнопку «Откликнуться» / «Предложить услугу», если она есть (раскрывает форму).
+    Возвращает True, если клик выполнен, иначе False. Не бросает исключений.
+    """
+    order_sel = selectors.get("order", {})
+    apply_selectors = first_selector(order_sel.get("apply_button", ""))
+    for sel in apply_selectors:
+        try:
+            el = await page.wait_for_selector(sel, timeout=timeout_ms, state="visible")
+            if el:
+                box = await el.bounding_box()
+                if box and box.get("width", 0) > 0 and box.get("height", 0) > 0:
+                    await el.click()
+                    logger.info("Нажата кнопка «Откликнуться» по селектору: %s", sel)
+                    await asyncio.sleep(1.5)
+                    return True
+        except PlaywrightTimeout:
+            continue
+        except Exception as e:
+            logger.debug("Клик по селектору %s: %s", sel, e)
+            continue
+
+    for text in APPLY_BUTTON_TEXTS:
+        try:
+            loc = page.get_by_text(text, exact=False)
+            if await loc.count() > 0:
+                first_btn = loc.first
+                if await first_btn.is_visible():
+                    await first_btn.click()
+                    logger.info("Нажата кнопка «%s» (по тексту)", text)
+                    await asyncio.sleep(1.5)
+                    return True
+        except PlaywrightTimeout:
+            continue
+        except Exception as e:
+            logger.debug("Клик по тексту «%s»: %s", text, e)
+            continue
+
+    return False
 
 
 async def get_description_from_page(

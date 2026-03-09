@@ -1,6 +1,6 @@
 """
 Состояние парсеров: время последней успешной проверки по платформам.
-Используется для фильтра «изначально не старше 24ч» и «далее только новые заказы».
+Используется для фильтра «изначально не старше 48ч» и «далее только новые заказы».
 """
 import json
 import logging
@@ -11,7 +11,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "parser_state.json"
-MAX_AGE_SECONDS = 24 * 3600  # 24 часа
+MAX_AGE_SECONDS = 48 * 3600  # 48 часов
 
 
 def _ensure_data_dir() -> None:
@@ -53,15 +53,19 @@ def set_last_run(platform: str) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def filter_by_time(orders: list, last_run_ts: Optional[float]) -> list:
+def filter_by_time(
+    orders: list,
+    last_run_ts: Optional[float],
+    *,
+    strict_incremental: bool = True,
+) -> list:
     """
-    Фильтрует заказы по времени (fl.ru и Kwork):
-    - Если last_run_ts нет (первый запуск): только заказы не старше 24 часов.
-    - Если есть: только заказы новее last_run_ts (подгрузка только новых).
-    У каждого элемента должен быть ключ published_ts (Unix UTC).
+    Фильтрует заказы по времени.
+    - strict_incremental=False (RSS fl.ru): всегда окно 48ч — RSS обновляется с задержкой.
+    - strict_incremental=True (Kwork): при наличии last_run — только новее last_run.
     """
     now_ts = datetime.now(timezone.utc).timestamp()
-    if last_run_ts is None:
-        cutoff = now_ts - MAX_AGE_SECONDS
+    cutoff = now_ts - MAX_AGE_SECONDS
+    if not strict_incremental or last_run_ts is None:
         return [o for o in orders if (o.get("published_ts") or 0) >= cutoff]
     return [o for o in orders if (o.get("published_ts") or 0) > last_run_ts]

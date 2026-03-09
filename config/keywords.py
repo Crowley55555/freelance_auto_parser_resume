@@ -19,7 +19,6 @@ KEYWORDS: List[str] = [
     "Scripting",
     "Скрипты",
     "Automation",
-    "Автоматизация",
     # Фреймворки
     "Django",
     "Джанго",

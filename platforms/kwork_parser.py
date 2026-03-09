@@ -15,7 +15,8 @@ from playwright.async_api import async_playwright
 logger = logging.getLogger(__name__)
 
 KWORK_PROJECTS_URL = "https://kwork.ru/projects?fc=39"
-PROJECT_LINK_PATTERN = re.compile(r"/projects/(\d+)")
+# Ссылки на заказ: /projects/123 или /project/123
+PROJECT_LINK_PATTERN = re.compile(r"/project[s]?/(\d+)")
 
 
 def _kwork_order_id_from_url(url: str) -> str:
@@ -78,11 +79,13 @@ async def fetch_orders_for_db() -> List[Dict[str, Any]]:
             )
             page = await context.new_page()
 
-            await page.goto(KWORK_PROJECTS_URL, wait_until="domcontentloaded", timeout=20000)
-            # Ждём появления ссылок на проекты (список рендерится JS)
+            await page.goto(KWORK_PROJECTS_URL, wait_until="networkidle", timeout=25000)
+            await page.wait_for_timeout(2000)
+
+            # Ждём появления хотя бы одной ссылки на проект (формат /project/123 или /projects/123)
             try:
                 await page.wait_for_selector(
-                    "a[href*='/projects/']",
+                    "a[href*='/project']",
                     timeout=15000,
                     state="attached",
                 )
@@ -91,21 +94,21 @@ async def fetch_orders_for_db() -> List[Dict[str, Any]]:
                 await browser.close()
                 return []
 
-            await page.wait_for_load_state("networkidle", timeout=10000)
-
-            # Извлекаем данные через JS: ссылки, карточка, бюджет, описание и дата публикации
+            # Извлекаем данные: ищем все ссылки на /project/123 или /projects/123
             raw_items = await page.evaluate("""
                 () => {
-                    const links = Array.from(document.querySelectorAll("a[href*='/projects/']"));
+                    const links = Array.from(document.querySelectorAll("a[href*='/project']"));
                     const seen = new Set();
                     const items = [];
+                    const re = /\\/project[s]?\\/\\d+/;
                     for (const a of links) {
-                        const href = a.href || a.getAttribute('href') || '';
-                        if (!/\\/projects\\/\\d+/.test(href) || seen.has(href)) continue;
+                        let href = (a.href || a.getAttribute('href') || '').trim();
+                        if (!re.test(href)) continue;
+                        if (seen.has(href)) continue;
                         seen.add(href);
-                        const card = a.closest('[class*="card"], [class*="Card"], [class*="item"], [class*="Item"], [data-id], article, .w-') || a.parentElement;
-                        const cardText = card ? card.innerText : a.innerText;
-                        const title = (a.textContent || cardText || '').trim().slice(0, 500);
+                        const card = a.closest('[class*="card"], [class*="Card"], [class*="item"], [class*="Item"], [class*="project"], [data-id], article') || a.parentElement?.parentElement || a.parentElement || a;
+                        const cardText = card ? card.innerText : (a.innerText || '');
+                        const title = (a.textContent || cardText || '').trim().replace(/\\s+/g, ' ').slice(0, 500);
                         const priceMatch = cardText.match(/\\d+\\s*₽|\\d+\\s*руб|\\$\\s*\\d+|\\d+\\s*\\$/i);
                         const budget = priceMatch ? priceMatch[0].trim() : '';
                         let dateText = '';
@@ -113,7 +116,7 @@ async def fetch_orders_for_db() -> List[Dict[str, Any]]:
                         const timeEl = card ? card.querySelector('time[datetime]') : null;
                         if (timeEl) {
                             datetimeAttr = timeEl.getAttribute('datetime');
-                            dateText = timeEl.innerText || '';
+                            dateText = (timeEl.innerText || '').trim();
                         }
                         if (!dateText && card) {
                             const all = card.querySelectorAll('[class*="time"], [class*="date"], [class*="Time"], [class*="Date"]');
@@ -130,6 +133,8 @@ async def fetch_orders_for_db() -> List[Dict[str, Any]]:
             """)
 
             await browser.close()
+
+            logger.info("Kwork: из страницы извлечено сырых карточек: %s", len(raw_items))
 
             for item in raw_items:
                 href = item.get("href", "")
@@ -152,6 +157,12 @@ async def fetch_orders_for_db() -> List[Dict[str, Any]]:
                 })
 
     except Exception as e:
+        err_msg = str(e).lower()
+        if "executable doesn't exist" in err_msg:
+            logger.error(
+                "Kwork: браузер Playwright не установлен. Выполните в терминале: playwright install"
+            )
+            return []
         logger.exception("Kwork: ошибка при парсинге: %s", e)
         return []
 

@@ -1,5 +1,6 @@
 {
   "order": {
+    "apply_button": ".offer-btn, .project-respond-btn, [data-action='offer'], .w-offer-form__submit, button.w-button, a.w-button",
     "description": ".wysiwyg, .project-description, [data-description], .js-project-description, .project__description, .task-description",
     "cover_letter_input": "textarea[name='message'], textarea[placeholder*='отклик'], textarea[placeholder*='сообщен'], .form__textarea, #message, textarea.comment",
     "resume_file_input": "input[type='file'][name*='file'], input[type='file'][accept*='pdf'], input[type='file']"

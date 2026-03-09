@@ -9,11 +9,12 @@ from dotenv import load_dotenv
 
 from config.loader import load_selectors_kwork
 from ai.llm_service import generate_cover_letter
-from browser.automation import get_browser_context
+from browser.automation import get_browser_context, invalidate_browser_context
 from browser.base import (
     get_resume_path,
     get_description_from_page,
     fill_form,
+    click_apply_button_if_present,
 )
 
 load_dotenv()
@@ -30,12 +31,23 @@ async def process_order_kwork(url: str, order_id: int) -> str:
         logger.warning("Файл резюме не найден: RESUME_PATH.")
 
     selectors = load_selectors_kwork()
-    context = await get_browser_context()
-    page = await context.new_page()
+    for attempt in (1, 2):
+        try:
+            context = await get_browser_context()
+            page = await context.new_page()
+            break
+        except Exception as e:
+            if "closed" in str(e).lower() and attempt == 1:
+                logger.warning("Kwork: браузер был закрыт, перезапускаю окно: %s", e)
+                invalidate_browser_context()
+                continue
+            raise
 
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(1)
+
+        await click_apply_button_if_present(page, selectors)
 
         description = await get_description_from_page(
             page,

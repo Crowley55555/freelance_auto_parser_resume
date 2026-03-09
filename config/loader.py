@@ -15,6 +15,7 @@ SYSTEM_PROMPT_PATH = CONFIG_DIR / "system_prompt.txt"
 # Дефолты селекторов по платформам (для fallback при ошибке загрузки файла)
 DEFAULT_SELECTORS_FL = {
     "order": {
+        "apply_button": "a.b-button, .b-post__action a, .b-post__action .b-button",
         "description": ".b-post__txt, .b-post__body",
         "cover_letter_input": "textarea[name='descr'], #descr",
         "submit_button": "input[type='submit'], button[type='submit']",
@@ -26,6 +27,7 @@ DEFAULT_SELECTORS_FL = {
 
 DEFAULT_SELECTORS_KWORK = {
     "order": {
+        "apply_button": ".offer-btn, .project-respond-btn, [data-action='offer']",
         "description": ".wysiwyg, .project-description",
         "cover_letter_input": "textarea[name='message'], #message",
         "resume_file_input": "input[type='file']",
